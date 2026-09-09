@@ -43,6 +43,27 @@ describe('deriveMessageRow', () => {
     expect(row?.content).toEqual([{ type: 'text', text: 'hello�world' }])
   })
 
+  it('normalizes lone surrogates and NUL in keys and values while retaining Unicode pairs and the source', () => {
+    const text = '中文 \ud83d\ude00 \ud800 x \udc00 \0'
+    const content = [{ type: 'text' as const, text, ['key\0\ud800']: { ['nested\udc00']: text }, metadata: null }]
+    const event: SessionEvent<'user/message'> = {
+      type: 'user/message', seq: SessionSeq(0), time: 10,
+      data: createUserMessage({ content, source: { kind: 'user' } }),
+    }
+    expect(deriveMessageRow(event)?.content).toEqual([
+      { type: 'text', text: '中文 \ud83d\ude00 � x � �', 'key��': { 'nested�': '中文 \ud83d\ude00 � x � �' }, metadata: null },
+    ])
+    expect(event.data.content).toEqual(content)
+  })
+
+  it('normalizes queryable tool identifiers as well as structured content', () => {
+    const event: SessionEvent<'tool/call'> = {
+      type: 'tool/call', seq: SessionSeq(0), time: 10,
+      data: { turn: 1, step: 1, name: 'tool\0\ud800', callId: ToolCallId('call\0\udc00'), arguments: '{}' },
+    }
+    expect(deriveMessageRow(event)).toMatchObject({ toolName: 'tool��', callId: 'call��' })
+  })
+
   it('records a compaction rewrite\'s replaced seq range', () => {
     const userMessage = createUserMessage({ content: [], source: { kind: 'plugin', plugin: 'test' } })
     const event: SessionEvent<'user/message'> = {

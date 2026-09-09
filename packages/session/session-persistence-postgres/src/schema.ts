@@ -6,14 +6,14 @@
  * @module @deepseek-ai/dsh-session-persistence-postgres/schema
  */
 
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
 /** Header row table: one row per stored session. */
-export const HEADER_TABLE = 'dsh_session_header'
+export const HEADER_TABLE = 'coffe_session'
 /** Event row table: one row per stored event, keyed by `(session_id, seq)`. */
-export const EVENT_TABLE = 'dsh_session_event'
+export const EVENT_TABLE = 'coffe_session_event'
 /** Derived message-node table: one row per conversational/tool-call event; see `./derived-message.ts`. */
-export const MESSAGE_TABLE = 'dsh_session_message'
+export const MESSAGE_TABLE = 'coffe_message'
 
 /** Quote one Postgres identifier (schema or table name) for safe interpolation. */
 function quoteIdent(identifier: string): string {
@@ -32,14 +32,32 @@ export function qualifiedTable(schemaName: string, table: string): string {
 
 /**
  * Create the configured schema (when not `public`) and its tables if absent.
- * Idempotent: safe to call from every backend instance at boot.
+ * Renames legacy session tables in place. Schema initialization is serialized
+ * across instances and commits atomically; conflicting old/new tables reject.
  * @param pool - the connection pool.
  * @param schemaName - the configured Postgres schema.
  */
 export async function ensureSchema(pool: Pool, schemaName: string): Promise<void> {
-  if (schemaName !== 'public') {
-    await pool.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schemaName)}`)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', ['agent-runtime:session-schema', schemaName])
+    await initializeSchema(client, schemaName)
+    await client.query('COMMIT')
+  } catch (error) {
+    // A disconnected client can reject rollback; preserve the original initialization failure.
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
   }
+}
+
+async function initializeSchema(client: PoolClient, schemaName: string): Promise<void> {
+  if (schemaName !== 'public') {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schemaName)}`)
+  }
+  await renameLegacyTables(client, schemaName)
   const headerTable = qualifiedTable(schemaName, HEADER_TABLE)
   const eventTable = qualifiedTable(schemaName, EVENT_TABLE)
   const messageTable = qualifiedTable(schemaName, MESSAGE_TABLE)
@@ -50,10 +68,10 @@ export async function ensureSchema(pool: Pool, schemaName: string): Promise<void
   // JSONL faithfully stores. The seam's "lossless JSON data" invariant means
   // this backend must store whatever `materializeAppendBatch`/
   // `materializeCreateHeader` already validated, not re-validate it more
-  // strictly than the seam requires. `dsh_session_message` below is a derived,
+  // strictly than the seam requires. `coffe_message` below is a derived,
   // lossy-tolerant projection built from this same source, so its `jsonb`
-  // content column sanitizes NUL bytes instead (`./derived-message.ts`).
-  await pool.query(`
+  // content column normalizes NUL and lone surrogates (`./derived-message.ts`).
+  await client.query(`
     CREATE TABLE IF NOT EXISTS ${headerTable} (
       id text PRIMARY KEY,
       header bytea NOT NULL,
@@ -63,7 +81,7 @@ export async function ensureSchema(pool: Pool, schemaName: string): Promise<void
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `)
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS ${eventTable} (
       session_id text NOT NULL REFERENCES ${headerTable}(id) ON DELETE CASCADE,
       seq bigint NOT NULL,
@@ -71,8 +89,57 @@ export async function ensureSchema(pool: Pool, schemaName: string): Promise<void
       PRIMARY KEY (session_id, seq)
     )
   `)
-  await ensureEventEnvelopeColumns(pool, eventTable)
-  await ensureMessageTable(pool, headerTable, messageTable)
+  await ensureEventEnvelopeColumns(client, eventTable)
+  await ensureMessageTable(client, headerTable, messageTable)
+}
+
+/** Rename only this provider's legacy tables and their owned constraints/indexes. */
+async function renameLegacyTables(client: PoolClient, schemaName: string): Promise<void> {
+  const tables = [
+    { legacy: ['dsh_session_header', 'agent_session'], current: HEADER_TABLE, indexes: [] },
+    { legacy: ['dsh_session_event', 'agent_session_event'], current: EVENT_TABLE, indexes: ['type_idx', 'time_idx'] },
+    { legacy: ['dsh_session_message', 'agent_message'], current: MESSAGE_TABLE, indexes: ['role_idx', 'id_idx', 'tool_name_idx', 'call_id_idx', 'content_idx', 'content_tsv_idx'] },
+  ]
+  const relations = await client.query<{ relname: string }>(
+    'SELECT c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = ANY($2::text[])',
+    [schemaName, tables.flatMap(table => [...table.legacy, table.current])],
+  )
+  const names = new Set(relations.rows.map(row => row.relname))
+  for (const table of tables) {
+    const existing = [...table.legacy, table.current].filter(name => names.has(name))
+    if (existing.length > 1) {
+      throw new Error(`PostgreSQL schema ${schemaName} contains conflicting session tables: ${existing.join(', ')}; reconcile the tables before starting the session backend`)
+    }
+  }
+  for (const table of tables) {
+    const legacyTable = table.legacy.find(name => names.has(name))
+    if (legacyTable === undefined && !names.has(table.current)) continue
+    const current = qualifiedTable(schemaName, table.current)
+    if (legacyTable !== undefined) {
+      await client.query(`ALTER TABLE ${qualifiedTable(schemaName, legacyTable)} RENAME TO ${quoteIdent(table.current)}`)
+    }
+    const constraints = await client.query<{ conname: string }>(
+      'SELECT conname FROM pg_catalog.pg_constraint WHERE conrelid = $1::regclass', [current],
+    )
+    // PostgreSQL 18 also gives NOT NULL constraints persistent names.
+    for (const constraint of constraints.rows) {
+      const prefix = table.legacy.find(name => constraint.conname.startsWith(`${name}_`))
+      if (prefix === undefined) continue
+      const renamed = `${table.current}${constraint.conname.slice(prefix.length)}`
+      await client.query(`ALTER TABLE ${current} RENAME CONSTRAINT ${quoteIdent(constraint.conname)} TO ${quoteIdent(renamed)}`)
+    }
+    const indexes = await client.query<{ relname: string }>(
+      'SELECT c.relname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid WHERE i.indrelid = $1::regclass', [current],
+    )
+    for (const suffix of table.indexes) {
+      for (const prefix of table.legacy) {
+        const legacy = `${prefix}_${suffix}`
+        if (indexes.rows.some(row => row.relname === legacy)) {
+          await client.query(`ALTER INDEX ${qualifiedTable(schemaName, legacy)} RENAME TO ${quoteIdent(`${table.current}_${suffix}`)}`)
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -82,18 +149,18 @@ export async function ensureSchema(pool: Pool, schemaName: string): Promise<void
  * `CREATE TABLE` so a fresh table and an upgraded one share one code path;
  * every statement is `IF NOT EXISTS`, so this is a no-op once applied. These
  * two columns cover the complete log generically; conversational content
- * lives in `dsh_session_message` instead (`./derived-message.ts`).
+ * lives in `coffe_message` instead (`./derived-message.ts`).
  * @param pool - the connection pool.
  * @param eventTable - the schema-qualified, quoted event table name.
  */
-async function ensureEventEnvelopeColumns(pool: Pool, eventTable: string): Promise<void> {
+async function ensureEventEnvelopeColumns(pool: PoolClient, eventTable: string): Promise<void> {
   await pool.query(`
     ALTER TABLE ${eventTable}
       ADD COLUMN IF NOT EXISTS type text,
       ADD COLUMN IF NOT EXISTS event_time bigint
   `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_event_type_idx ON ${eventTable} (session_id, type)`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_event_time_idx ON ${eventTable} (event_time)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_session_event_type_idx ON ${eventTable} (session_id, type)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_session_event_time_idx ON ${eventTable} (event_time)`)
 }
 
 /**
@@ -105,7 +172,7 @@ async function ensureEventEnvelopeColumns(pool: Pool, eventTable: string): Promi
  * @param headerTable - the schema-qualified, quoted header table name.
  * @param messageTable - the schema-qualified, quoted message table name.
  */
-async function ensureMessageTable(pool: Pool, headerTable: string, messageTable: string): Promise<void> {
+async function ensureMessageTable(pool: PoolClient, headerTable: string, messageTable: string): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${messageTable} (
       session_id text NOT NULL REFERENCES ${headerTable}(id) ON DELETE CASCADE,
@@ -140,10 +207,10 @@ async function ensureMessageTable(pool: Pool, headerTable: string, messageTable:
       ADD COLUMN IF NOT EXISTS content_tsv tsvector
         GENERATED ALWAYS AS (jsonb_to_tsvector('simple', coalesce(content, '{}'::jsonb), '["string"]')) STORED
   `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_role_idx ON ${messageTable} (session_id, role)`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_id_idx ON ${messageTable} (message_id) WHERE message_id IS NOT NULL`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_tool_name_idx ON ${messageTable} (tool_name) WHERE tool_name IS NOT NULL`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_call_id_idx ON ${messageTable} (call_id) WHERE call_id IS NOT NULL`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_content_idx ON ${messageTable} USING GIN (content jsonb_path_ops)`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS dsh_session_message_content_tsv_idx ON ${messageTable} USING GIN (content_tsv)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_role_idx ON ${messageTable} (session_id, role)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_id_idx ON ${messageTable} (message_id) WHERE message_id IS NOT NULL`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_tool_name_idx ON ${messageTable} (tool_name) WHERE tool_name IS NOT NULL`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_call_id_idx ON ${messageTable} (call_id) WHERE call_id IS NOT NULL`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_content_idx ON ${messageTable} USING GIN (content jsonb_path_ops)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS coffe_message_content_tsv_idx ON ${messageTable} USING GIN (content_tsv)`)
 }

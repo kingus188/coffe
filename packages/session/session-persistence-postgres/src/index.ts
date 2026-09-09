@@ -35,11 +35,14 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
-import { deriveMessageRow } from './derived-message.ts'
+import { deriveMessageRow, sanitizeText } from './derived-message.ts'
 import { PostgresBackendTracker, PostgresSessionHandle } from './storage.ts'
 import type { PostgresHandleStorage } from './storage.ts'
 import { tryAcquireAdvisoryLock, type AdvisoryLock } from './lock.ts'
 import { ensureSchema, qualifiedTable, EVENT_TABLE, HEADER_TABLE, MESSAGE_TABLE } from './schema.ts'
+
+// PostgreSQL Bind messages encode the parameter count as an unsigned Int16.
+const MAX_BIND_PARAMETERS = 65_535
 
 /** Plugin config for the Postgres backend's connection and target schema. */
 export interface Config {
@@ -497,10 +500,17 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
    * time range without decoding JSON.
    */
   private async insertEvents(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    const rowsPerStatement = Math.floor((MAX_BIND_PARAMETERS - 1) / 4)
+    for (let offset = 0; offset < events.length; offset += rowsPerStatement) {
+      await this.insertEventRows(client, id, events.slice(offset, offset + rowsPerStatement))
+    }
+  }
+
+  private async insertEventRows(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     const placeholders: string[] = []
     const params: unknown[] = [id]
     for (const event of events) {
-      const values = [event.seq, encodeJson(event), event.type, event.time]
+      const values = [event.seq, encodeJson(event), sanitizeText(event.type), event.time]
       const base = params.length
       placeholders.push(`($1, ${values.map((_, i) => `$${base + i + 1}`).join(', ')})`)
       params.push(...values)
@@ -514,11 +524,18 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
   /**
    * Insert one message-node row ({@link deriveMessageRow}) for each
    * conversational/tool-call event in the batch, skipping every structural
-   * event the way `dsh_session_message` is defined to. Runs in the same
+   * event the way `coffe_message` is defined to. Runs in the same
    * transaction as {@link insertEvents}, so the message projection is always
    * exactly as durable and as current as the raw log it derives from.
    */
   private async insertMessages(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    const rowsPerStatement = Math.floor((MAX_BIND_PARAMETERS - 1) / 18)
+    for (let offset = 0; offset < events.length; offset += rowsPerStatement) {
+      await this.insertMessageRows(client, id, events.slice(offset, offset + rowsPerStatement))
+    }
+  }
+
+  private async insertMessageRows(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     const placeholders: string[] = []
     const params: unknown[] = [id]
     for (const event of events) {

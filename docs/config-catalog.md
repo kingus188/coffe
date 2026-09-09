@@ -1934,6 +1934,30 @@ export type JsonlCompression = 'zstd' | 'none'
 
 Source: [`packages/session/session-persistence-jsonl/src/index.ts:88`](../packages/session/session-persistence-jsonl/src/index.ts)
 
+<a id="deepseek-aidsh-session-persistence-postgres"></a>
+
+## `@deepseek-ai/dsh-session-persistence-postgres`
+
+```ts config-catalog
+/** Plugin config for the Postgres backend's connection and target schema. */
+export interface Config {
+  /**
+   * Standard `postgres://user:password@host:port/database` connection
+   * string. Required (no default): unlike a local file root, a database
+   * connection has no deployment-neutral default to fall back to.
+   */
+  connectionString: string
+  /** Postgres schema holding the backend's tables; created if absent. */
+  schema?: string
+  /** Whether to negotiate TLS with the server (required by most managed Postgres). */
+  ssl?: boolean
+  /** Maximum pooled connections; omit to use the driver's own default. */
+  poolSize?: number
+}
+```
+
+Source: [`packages/session/session-persistence-postgres/src/index.ts:48`](../packages/session/session-persistence-postgres/src/index.ts)
+
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
 ## `@deepseek-ai/dsh-session-projection-cache`

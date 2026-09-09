@@ -175,14 +175,18 @@ export function runLiveWritePathContract(
       if (session === undefined) throw new Error('session was not created')
       const handle = await ctx.sessionPersistence.create(session.header)
       const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-      vi.spyOn(handle, 'close').mockRejectedValue(new Error('drain exploded'))
-      session.append('turn/start', { turn: 1 })
-      await owner.dispose()
-      await vi.waitFor(() => {
-        expect(warned.mock.calls.join('\n')).toContain('final drain for session "disposed-drain-fails" failed')
-      })
-      warned.mockRestore()
-      await ctx.fiber.dispose()
+      const close = vi.spyOn(handle, 'close').mockRejectedValue(new Error('drain exploded'))
+      try {
+        session.append('turn/start', { turn: 1 })
+        await owner.dispose()
+        await vi.waitFor(() => {
+          expect(warned.mock.calls.join('\n')).toContain('final drain for session "disposed-drain-fails" failed')
+        })
+      } finally {
+        close.mockRestore()
+        warned.mockRestore()
+        await ctx.fiber.dispose()
+      }
     })
 
     it('backend teardown drains buffered events through the close sweep', async () => {
