@@ -36,6 +36,7 @@
     "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",

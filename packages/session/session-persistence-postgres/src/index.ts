@@ -35,10 +35,11 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
+import { deriveMessageRow } from './derived-message.ts'
 import { PostgresBackendTracker, PostgresSessionHandle } from './storage.ts'
 import type { PostgresHandleStorage } from './storage.ts'
 import { tryAcquireAdvisoryLock, type AdvisoryLock } from './lock.ts'
-import { ensureSchema, qualifiedTable, EVENT_TABLE, HEADER_TABLE } from './schema.ts'
+import { ensureSchema, qualifiedTable, EVENT_TABLE, HEADER_TABLE, MESSAGE_TABLE } from './schema.ts'
 
 /** Plugin config for the Postgres backend's connection and target schema. */
 export interface Config {
@@ -138,6 +139,7 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
   private readonly schemaName: string
   private readonly headerTable: string
   private readonly eventTable: string
+  private readonly messageTable: string
   private readonly tracker = new PostgresBackendTracker(this.name)
   private ready: Promise<void> | undefined
 
@@ -146,6 +148,7 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
     this.schemaName = config.schema ?? 'public'
     this.headerTable = qualifiedTable(this.schemaName, HEADER_TABLE)
     this.eventTable = qualifiedTable(this.schemaName, EVENT_TABLE)
+    this.messageTable = qualifiedTable(this.schemaName, MESSAGE_TABLE)
     this.pool = new Pool({
       connectionString: config.connectionString,
       ssl: config.ssl,
@@ -356,7 +359,10 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
         // Another process's concurrent materialize won the race for this id.
         if (insert.rowCount === 0) throw new SessionAlreadyExistsError(header.id)
       }
-      if (events.length > 0) await this.insertEvents(client, header.id, events)
+      if (events.length > 0) {
+        await this.insertEvents(client, header.id, events)
+        await this.insertMessages(client, header.id, events)
+      }
       await client.query(
         `UPDATE ${this.headerTable} SET revision = revision + 1, event_count = event_count + $2 WHERE id = $1`,
         [header.id, events.length],
@@ -484,15 +490,61 @@ class PostgresSessionPersistence extends SessionPersistence implements PostgresH
     }
   }
 
+  /**
+   * Insert one contiguous batch's raw event rows: each carries its lossless
+   * `event` bytes alongside the two generic envelope columns (`type`,
+   * `event_time`) that let an operator query the complete log by type or
+   * time range without decoding JSON.
+   */
   private async insertEvents(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     const placeholders: string[] = []
     const params: unknown[] = [id]
     for (const event of events) {
-      placeholders.push(`($1, $${params.length + 1}, $${params.length + 2})`)
-      params.push(event.seq, encodeJson(event))
+      const values = [event.seq, encodeJson(event), event.type, event.time]
+      const base = params.length
+      placeholders.push(`($1, ${values.map((_, i) => `$${base + i + 1}`).join(', ')})`)
+      params.push(...values)
     }
     await client.query(
-      `INSERT INTO ${this.eventTable} (session_id, seq, event) VALUES ${placeholders.join(', ')}`,
+      `INSERT INTO ${this.eventTable} (session_id, seq, event, type, event_time) VALUES ${placeholders.join(', ')}`,
+      params,
+    )
+  }
+
+  /**
+   * Insert one message-node row ({@link deriveMessageRow}) for each
+   * conversational/tool-call event in the batch, skipping every structural
+   * event the way `dsh_session_message` is defined to. Runs in the same
+   * transaction as {@link insertEvents}, so the message projection is always
+   * exactly as durable and as current as the raw log it derives from.
+   */
+  private async insertMessages(client: PoolClient, id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    const placeholders: string[] = []
+    const params: unknown[] = [id]
+    for (const event of events) {
+      const row = deriveMessageRow(event)
+      if (row === undefined) continue
+      const values = [
+        // `pg` serializes a plain JS array as a Postgres array literal, not JSON, so
+        // `content` (often itself an array of content blocks) must be pre-stringified;
+        // Postgres then parses that text as jsonb from the target column's inferred type.
+        event.seq, row.messageId, row.role, JSON.stringify(row.content), row.createTime, row.model, row.provider,
+        row.toolName, row.callId, row.inputTokens, row.outputTokens, row.totalTokens,
+        row.cacheReadTokens, row.cacheWriteTokens, row.reasoningTokens,
+        row.replacesStartSeq, row.replacesEndSeq, row.sourceEventSeqs,
+      ]
+      const base = params.length
+      placeholders.push(`($1, ${values.map((_, i) => `$${base + i + 1}`).join(', ')})`)
+      params.push(...values)
+    }
+    if (placeholders.length === 0) return
+    await client.query(
+      `INSERT INTO ${this.messageTable} (
+        session_id, seq, message_id, role, content, create_time, model, provider,
+        tool_name, call_id, input_tokens, output_tokens, total_tokens,
+        cache_read_tokens, cache_write_tokens, reasoning_tokens,
+        replaces_start_seq, replaces_end_seq, source_event_seqs
+      ) VALUES ${placeholders.join(', ')}`,
       params,
     )
   }

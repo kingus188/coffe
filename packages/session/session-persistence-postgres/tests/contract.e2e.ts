@@ -8,15 +8,17 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { afterAll, describe, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore from '@deepseek-ai/dsh-session'
+import { createMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import pg from 'pg'
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import PostgresSessionPersistence from '../src/index.ts'
 import { LIVE_WRITE_BATCH_MAX_DELAY_MS } from '../src/storage.ts'
+import { qualifiedTable, EVENT_TABLE, MESSAGE_TABLE } from '../src/schema.ts'
 import { runPersistenceContract } from '../../session-persistence/tests/contract.ts'
 import { runLiveWritePathContract } from '../../session-persistence/tests/live-write-contract.ts'
 
@@ -85,6 +87,89 @@ if (container !== undefined) {
       return ctx
     }
     return { ctx: await mount(), remount: mount }
+  })
+
+  describe('SessionPersistence: postgres derived tables', () => {
+    it('projects the complete log generically and the four conversational/tool-call event types as message-node rows', async () => {
+      const schema = freshSchema()
+      const ctx = new Context()
+      const fiber = await ctx.plugin(PostgresSessionPersistence, { connectionString, schema })
+      const id = SessionId(`derived-${randomUUID()}`)
+      const callId = ToolCallId('call-1')
+      const withNul = `has a ${String.fromCharCode(0)} byte`
+      try {
+        const handle = await ctx.sessionPersistence.create({
+          version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), isSeeded: false,
+        })
+        await handle.append([
+          { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+          {
+            type: 'user/message', seq: SessionSeq(1), time: 2,
+            data: createUserMessage({ content: [{ type: 'text', text: withNul }], source: { kind: 'user' } }),
+          },
+          {
+            type: 'assistant/message', seq: SessionSeq(2), time: 3,
+            data: {
+              turn: 1, step: 1, stream: [],
+              message: createMessage({
+                role: 'assistant', content: [{ type: 'text', text: 'reply text' }],
+                source: { kind: 'model', ...{ provider: 'mock', model: 'mock' } },
+              }),
+              usage: { inputTokens: 3, outputTokens: 4 },
+            },
+          },
+          { type: 'tool/call', seq: SessionSeq(3), time: 4, data: { turn: 1, step: 1, callId, name: 'bash', arguments: '{"cmd":"ls"}' } },
+        ])
+        await handle.close()
+
+        const client = new Client({ connectionString })
+        await client.connect()
+        try {
+          const events = await client.query(
+            `SELECT seq, type FROM ${qualifiedTable(schema, EVENT_TABLE)} WHERE session_id = $1 ORDER BY seq`,
+            [id],
+          )
+          expect(events.rows).toEqual([
+            { seq: '0', type: 'turn/start' },
+            { seq: '1', type: 'user/message' },
+            { seq: '2', type: 'assistant/message' },
+            { seq: '3', type: 'tool/call' },
+          ])
+
+          const messages = await client.query(
+            `SELECT seq, role, content, model, tool_name, call_id, input_tokens, output_tokens
+             FROM ${qualifiedTable(schema, MESSAGE_TABLE)} WHERE session_id = $1 ORDER BY seq`,
+            [id],
+          )
+          // No row for the structural turn/start event: only the four conversational/tool-call types project here.
+          expect(messages.rows).toEqual([
+            {
+              seq: '1', role: 'user', content: [{ type: 'text', text: 'has a � byte' }],
+              model: null, tool_name: null, call_id: null, input_tokens: null, output_tokens: null,
+            },
+            {
+              seq: '2', role: 'assistant', content: [{ type: 'text', text: 'reply text' }],
+              model: 'mock', tool_name: null, call_id: null, input_tokens: '3', output_tokens: '4',
+            },
+            {
+              seq: '3', role: 'tool_call', content: { name: 'bash', arguments: '{"cmd":"ls"}' },
+              model: null, tool_name: 'bash', call_id: callId, input_tokens: null, output_tokens: null,
+            },
+          ])
+
+          const search = await client.query(
+            `SELECT seq FROM ${qualifiedTable(schema, MESSAGE_TABLE)} WHERE session_id = $1 AND content_tsv @@ to_tsquery('simple', 'reply')`,
+            [id],
+          )
+          expect(search.rows.map((row: { seq: string }) => row.seq)).toEqual(['2'])
+        } finally {
+          await client.end()
+        }
+      } finally {
+        await fiber.dispose()
+        await dropSchema(connectionString, schema)
+      }
+    })
   })
 } else {
   describe.skip('SessionPersistence contract: postgres (Docker unavailable)', () => {
