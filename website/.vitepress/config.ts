@@ -1,6 +1,6 @@
 /** VitePress configuration for the locally projected documentation site. */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { DefaultTheme, PageData, SiteConfig } from 'vitepress'
 import type { ViteDevServer } from 'vite'
@@ -187,14 +187,14 @@ const sharedTheme: Pick<DefaultTheme.Config, 'search' | 'socialLinks' | 'editLin
     },
   },
   socialLinks: [
-    { icon: 'github', link: 'https://github.com/deepseek-ai/deepseek-harness' },
+    { icon: 'github', link: 'https://github.com/kingus188/coffe' },
   ],
   editLink: {
     pattern: ({ frontmatter }: PageData) => {
       const data: unknown = frontmatter
       const editSource: unknown = typeof data === 'object' && data !== null ? Reflect.get(data, 'editSource') : undefined
       if (typeof editSource !== 'string') throw new Error('Projected documentation page has no editSource frontmatter.')
-      return `https://github.com/deepseek-ai/deepseek-harness/edit/master/${editSource}`
+      return `https://github.com/kingus188/coffe/edit/main/${editSource}`
     },
     text: '在 GitHub 上编辑此页',
   },
@@ -205,17 +205,9 @@ const base = process.env.DOCS_BASE ?? '/'
 
 /** Site identity shared by the VitePress configuration and the llms.txt index. */
 const siteIdentity = {
-  title: 'DeepSeek Harness',
-  description: '用于构建 Agent Harness 的插件化 SDK',
+  title: 'Coffe',
+  description: '基于 DeepSeek Harness 二次开发的开源 Agent 运行平台',
 }
-
-/**
- * The DeepSeek wordmark, inlined so its `currentColor` fills follow the active
- * theme. An `<img>` would freeze the mark at the colors the file declares.
- */
-const wordmark = readFileSync(resolve(import.meta.dirname, '../public/wordmark.svg'), 'utf8')
-  .trim()
-  .replace('<svg ', '<svg class="dsh-wordmark" ')
 
 /**
  * Styles the default theme does not provide, carried inline because the site
@@ -230,7 +222,6 @@ const wordmark = readFileSync(resolve(import.meta.dirname, '../public/wordmark.s
  */
 const siteStyle = `
 .dsh-lockup { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.dsh-wordmark { display: block; height: 22px; width: auto; color: var(--vp-c-text-1); }
 .dsh-tag {
   display: inline-flex;
   align-items: center;
@@ -282,14 +273,14 @@ const scrollbarScript = `
 `
 
 /**
- * Navigation-bar title: the DeepSeek wordmark and the release-stage tag.
+ * Navigation-bar title: Coffe and the release-stage tag.
  * VitePress renders `siteTitle` as HTML.
  *
  * @param previewTag - Localized release-stage label.
  * @returns Markup placed beside the navigation-bar home link.
  */
 function siteTitle(previewTag: string): string {
-  return `<span class="dsh-lockup">${wordmark}<span class="dsh-tag">${previewTag}</span></span>`
+  return `<span class="dsh-lockup"><span>Coffe</span><span class="dsh-tag">${previewTag}</span></span>`
 }
 
 export default withMermaid({
@@ -317,6 +308,7 @@ export default withMermaid({
       lang: 'zh-CN',
       themeConfig: {
         siteTitle: siteTitle('技术预览'),
+        footer: { message: '基于 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 二次开发，独立维护。', copyright: 'MIT License · Copyright (c) 2026 DeepSeek' },
         nav: [
           { text: '入门', link: landingLink('root', guideModules.root.guide), activeMatch: '^/guide/' },
           ...moduleNav('root'),
@@ -343,6 +335,7 @@ export default withMermaid({
       link: '/en/',
       themeConfig: {
         siteTitle: siteTitle('Preview'),
+        footer: { message: 'An independent fork of <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>.', copyright: 'MIT License · Copyright (c) 2026 DeepSeek' },
         nav: [
           { text: 'Guide', link: landingLink('en', guideModules.en.guide), activeMatch: '^/en/guide/' },
           ...moduleNav('en'),
@@ -357,7 +350,7 @@ export default withMermaid({
             const data: unknown = frontmatter
             const editSource: unknown = typeof data === 'object' && data !== null ? Reflect.get(data, 'editSource') : undefined
             if (typeof editSource !== 'string') throw new Error('Projected documentation page has no editSource frontmatter.')
-            return `https://github.com/deepseek-ai/deepseek-harness/edit/master/${editSource}`
+            return `https://github.com/kingus188/coffe/edit/main/${editSource}`
           },
           text: 'Edit this page on GitHub',
         },

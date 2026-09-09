@@ -1,0 +1,42 @@
+name: Coffe CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coffe-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  verify:
+    if: github.repository == 'kingus188/coffe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run doc-sync
+      - name: Session unit tests
+        run: pnpm exec vitest run packages/session/session-persistence-postgres/tests/schema.spec.ts packages/session/session-persistence-postgres/tests/derived-message.spec.ts
+      - name: PostgreSQL contract tests
+        env:
+          DSH_POSTGRES_REQUIRE_DOCKER: '1'
+        run: pnpm exec vitest run --config vitest.e2e.config.ts packages/session/session-persistence-postgres/tests/contract.e2e.ts --retry 0

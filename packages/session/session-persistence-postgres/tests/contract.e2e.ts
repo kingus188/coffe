@@ -30,6 +30,7 @@ let container: StartedPostgreSqlContainer | undefined
 try {
   container = await new PostgreSqlContainer(process.env.DSH_POSTGRES_TEST_IMAGE ?? 'postgres:18-alpine').withDatabase('coffe').start()
 } catch (error) {
+  if (process.env.DSH_POSTGRES_REQUIRE_DOCKER === '1') throw error
   if (!(error instanceof Error) || error.message !== 'Could not find a working container runtime strategy') throw error
   // No container runtime was found; image, startup, and SQL failures remain test failures.
   container = undefined

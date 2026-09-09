@@ -1,84 +1,64 @@
-# DeepSeek Harness
+# Coffe
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+**Coffe 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 二次开发、独立维护的开源项目；原项目由 [DeepSeek AI](https://deepseek.com) 开发。** Coffe 沿用其插件化架构，扩展自托管 Agent 运行和 PostgreSQL 会话存储能力。Coffe 不是 DeepSeek 官方发行版。
 
-它构建于**一切皆插件**的架构之上，由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512)。
+底层 Harness、Web UI、工具、SDK 和插件架构来源于 DeepSeek Harness，插件框架使用 [Cordis](https://github.com/cordiverse/cordis)。项目来源及维护关系见[上游致谢与维护说明](UPSTREAM.zh.md)。
 
-文档：[https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+## Coffe 增加了什么
+
+- PostgreSQL 会话持久化，支持跨进程写入所有权和事务化追加。
+- 可查询的消息内容、工具调用关联、Token 计量和全文 SQL 搜索。
+- 使用 `coffe` 运行数据库和 `coffe_` 表前缀，支持旧会话表原地迁移。
+
+这些扩展由 [PostgreSQL 后端](packages/session/session-persistence-postgres/README.zh.md)实现。本版本尚不包含多用户权限和完整的运行管理控制台。
 
 ## 开发者预览
 
-DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
-
-运行本项目前，请阅读[安全说明](SAFETY.zh.md)。
+Coffe 及其上游仍在演进，接口和配置可能变化。运行能够访问文件、执行命令或调用外部服务的 Agent 前，请阅读[安全说明](SAFETY.zh.md)。
 
 <a id="run"></a>
 
 ## 运行
 
-### 通过 `npm` 运行
-
-安装 `Node.js`，然后运行：
-
-```sh
-npx @deepseek-ai/dsh web
-```
-
-该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.zh.md)。
-
 <a id="run-from-source"></a>
 
 ### 从源码运行
 
-如需从仓库源码运行：
+使用 Node.js `^22.19.0` 或 `>=24.0.0`，以及 pnpm `11.7.0`：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/kingus188/coffe.git
+cd coffe
 pnpm install
 pnpm run build
-pnpm dsh web
+pnpm dsh web --no-open
 ```
 
-`pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
+Web UI 默认监听 `http://127.0.0.1:3080`。开始对话前请配置模型提供者，详见 [Web UI 指南](docs/user/guide/index.zh.md)。
 
-## 社区与支持
+保留的 `dsh` 命令和 `@deepseek-ai/*` 工作区包名代表继承的接口。`npx @deepseek-ai/dsh` 安装的是上游项目，不是本 Fork。Coffe 尚未发布独立的 npm 包或桌面安装包，请通过本仓库源码运行二开功能。
 
-- 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+### PostgreSQL 存储
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">企微小助手</th>
-      <th align="center">入群问卷</th>
-      <th align="center">微信公众号</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
-      <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="https://cdn.deepseek.com/harness/readme/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
-      <td align="center"><img src="https://cdn.deepseek.com/harness/readme/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
+PostgreSQL 是可选项。需要使用时，挂载 [PostgreSQL 持久化插件](packages/session/session-persistence-postgres/README.zh.md)替代 JSONL，并将连接配置指向你的 `coffe` 数据库。凭据不得进入 Git，已有 JSONL 会话保留在原后端。
+
+## 文档与支持
+
+- 通过 [Coffe Issues](https://github.com/kingus188/coffe/issues)提交可复现的问题和功能需求。
+- 通过 [Coffe Discussions](https://github.com/kingus188/coffe/discussions)讨论使用和设计问题。
+- [开发指南](docs/development.zh.md)和[架构文档](docs/architecture.zh.md)介绍继承的 Harness 与当前实现。
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)提供上游源码、发行版和社区入口。
+
+本仓库文档包含继承的 DeepSeek Harness 资料。其中的上游 npm 包和官方服务说明描述的是上游行为；Coffe 特有的存储与发行说明以本页及所链接的后端 README 为准。
 
 ## 参与贡献
 
-参见 [CONTRIBUTING.md](CONTRIBUTING.zh.md)。
+Coffe 接受 Issue 和 Pull Request，请先阅读 [CONTRIBUTING.md](CONTRIBUTING.zh.md)。`main` 是公开基线分支，`dev` 是集成开发分支。Agent 贡献者遵循 [AGENTS.md](AGENTS.md)。
 
-## 开发
+## 许可证与致谢
 
-请先阅读[开发指南](docs/development.zh.md)与[架构文档](docs/architecture.zh.md)。
+Coffe 使用 [MIT 许可证](LICENSE)，保留原始 `Copyright (c) 2026 DeepSeek` 版权声明和许可正文。上游实现归功于 DeepSeek 及原贡献者，Coffe 的二次开发改动记录在 Git 历史中。
 
-面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-[MIT](LICENSE)
-
-第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+第三方许可证继续保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中。

@@ -1,63 +1,64 @@
-# DeepSeek Harness
+# Coffe
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+**Coffe is an independently maintained open-source fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), originally developed by [DeepSeek AI](https://deepseek.com).** Coffe builds on its plugin architecture to support self-hosted Agent runtimes and PostgreSQL-backed session storage. It is not an official DeepSeek release.
 
-It is built on an **everything-is-a-plugin** architecture and powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512).
+The underlying harness, Web UI, tools, SDKs, and plugin architecture come from DeepSeek Harness. Its plugin framework is [Cordis](https://github.com/cordiverse/cordis). See [upstream attribution and maintenance](UPSTREAM.md) for provenance and the relationship between the projects.
 
-Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+## What Coffe adds
+
+- PostgreSQL session persistence with cross-process write ownership and transactional appends.
+- Queryable message content, tool-call correlation, token accounting, and full-text SQL search.
+- A shared `coffe` runtime database with `coffe_` table names, including in-place migration from legacy session tables.
+
+These additions are implemented in the [PostgreSQL backend](packages/session/session-persistence-postgres/README.md). Multi-user permissions and a complete runtime administration console are not part of this release.
 
 ## Developer preview
 
-DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
+Coffe and its upstream are evolving. Interfaces and configuration may change. Review the [safety notice](SAFETY.md) before running an Agent with access to files, commands, or external services.
 
-Review the [safety notice](SAFETY.md) before running the project.
+<a id="run"></a>
 
 ## Run
 
-### Run from `npm`
-
-Install `Node.js`, then run:
-
-```sh
-npx @deepseek-ai/dsh web
-```
-
-The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it in the default browser for a local launch. An SSH launch only prints the host URL because the SSH client or editor owns the local forwarded address. Pass `--no-open` to run the server without opening a browser. See [Web UI guide](docs/user/guide/index.md).
+<a id="run-from-source"></a>
 
 ### Run from source
 
-To run from a repository checkout:
+Use Node.js `^22.19.0` or `>=24.0.0` and pnpm `11.7.0`:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/kingus188/coffe.git
+cd coffe
 pnpm install
 pnpm run build
-pnpm dsh web
+pnpm dsh web --no-open
 ```
 
-`pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
+The Web UI listens at `http://127.0.0.1:3080` by default. Configure your model provider before starting a conversation. See the [Web UI guide](docs/user/guide/index.md).
 
-## Community and support
+The retained `dsh` command and `@deepseek-ai/*` workspace names identify inherited interfaces. `npx @deepseek-ai/dsh` installs the upstream project, not this fork. Coffe does not yet publish its own npm or desktop releases; use this checkout to run its changes.
 
-- Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
-- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to your plugin repository for discoverability.
-- Join <a href="https://discord.gg/Ycq5dCaS4">DeepSeek Harness Discord community</a>.
+### PostgreSQL storage
+
+PostgreSQL is optional. To use it, mount the [PostgreSQL persistence plugin](packages/session/session-persistence-postgres/README.md) in place of JSONL and point its connection configuration at your `coffe` database. Keep credentials outside Git. Existing JSONL sessions remain on their original backend.
+
+## Documentation and support
+
+- [Coffe Issues](https://github.com/kingus188/coffe/issues) for reproducible bugs and feature requests.
+- [Coffe Discussions](https://github.com/kingus188/coffe/discussions) for usage and design questions.
+- [Development guide](docs/development.md) and [architecture](docs/architecture.md) for the inherited harness and local implementation.
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) for upstream source, releases, and community links.
+
+Documentation in this checkout includes inherited DeepSeek Harness material. References to upstream npm packages and official services describe upstream behavior; Coffe-specific storage and distribution details are documented here and in the linked backend README.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Coffe accepts issues and pull requests. Read [CONTRIBUTING.md](CONTRIBUTING.md). `main` is the public baseline; `dev` is the integration branch. Agent contributors follow [AGENTS.md](AGENTS.md).
 
-## Development
+## License and attribution
 
-Start with the [development guide](docs/development.md) and [architecture documentation](docs/architecture.md).
+Coffe is distributed under the [MIT License](LICENSE). The original `Copyright (c) 2026 DeepSeek` notice and permission text are retained. Credit for the upstream implementation belongs to DeepSeek and the original contributors; Coffe changes are recorded in Git history.
 
-For agents, follow [AGENTS.md](AGENTS.md).
-
-## License
-
-[MIT](LICENSE)
-
-Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Third-party licenses remain in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

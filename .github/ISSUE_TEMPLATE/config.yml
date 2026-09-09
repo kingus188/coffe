@@ -1,1 +1,8 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
+contact_links:
+  - name: Coffe Discussions
+    url: https://github.com/kingus188/coffe/discussions
+    about: Usage and design questions for Coffe, an independent fork of DeepSeek Harness.
+  - name: Upstream DeepSeek Harness
+    url: https://github.com/deepseek-ai/deepseek-harness
+    about: Original project, source, releases, and upstream contribution policy.
