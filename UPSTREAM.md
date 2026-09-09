@@ -2,7 +2,7 @@
 
 English | [中文](UPSTREAM.zh.md)
 
-**Coffe originates from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), developed by DeepSeek AI and its contributors.** This repository retains the upstream Git history and GitHub fork relationship. Coffe is independently maintained by [kingus188](https://github.com/kingus188); it does not represent an official DeepSeek release or endorsement.
+**Coffe originates from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), developed by DeepSeek AI and its contributors.** This repository retains the upstream Git history. Coffe is independently maintained by [kingus188](https://github.com/kingus188); it does not represent an official DeepSeek release or endorsement.
 
 ## What is inherited
 
@@ -16,7 +16,7 @@ Internal `@deepseek-ai/*` names and the `dsh` command are retained for source co
 
 ## Synchronization
 
-`origin` points to `kingus188/coffe`; `upstream` points to `deepseek-ai/deepseek-harness`. Import reviewed upstream changes into `dev`, run the checks for the combined changes, then promote to `main`. Preserve original commits and keep Coffe additions in focused commits so provenance and future merges remain inspectable. Upstream branches and tags are read-only inputs to this workflow.
+`origin` points to `kingus188/coffe`; `upstream` points to `deepseek-ai/deepseek-harness`. Fetch and merge upstream changes with Git as needed; synchronization does not require membership in GitHub's fork network. Import reviewed upstream changes into `dev`, run the checks for the combined changes, then promote to `main`. Preserve original commits and keep Coffe additions in focused commits so provenance and future merges remain inspectable. Upstream branches and tags are read-only inputs to this workflow.
 
 ## License
 

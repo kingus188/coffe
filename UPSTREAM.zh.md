@@ -2,7 +2,7 @@
 
 [English](UPSTREAM.md) | 中文
 
-**Coffe 来源于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，原项目由 DeepSeek AI 及其贡献者开发。** 本仓库保留上游 Git 历史和 GitHub Fork 关系，由 [kingus188](https://github.com/kingus188) 独立维护，不代表 DeepSeek 官方发行或背书。
+**Coffe 来源于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，原项目由 DeepSeek AI 及其贡献者开发。** 本仓库保留上游 Git 历史，由 [kingus188](https://github.com/kingus188) 独立维护，不代表 DeepSeek 官方发行或背书。
 
 ## 继承的能力
 
@@ -16,7 +16,7 @@ Coffe 维护 PostgreSQL 持久化扩展、`coffe_` 运行表及其迁移，以�
 
 ## 同步方式
 
-`origin` 指向 `kingus188/coffe`，`upstream` 指向 `deepseek-ai/deepseek-harness`。将审查过的上游改动导入 `dev`，验证合并后的改动，再推进到 `main`。保留原始提交，将 Coffe 扩展组织为范围集中的提交，使来源和后续合并可审查。此流程仅将上游分支和标签作为只读输入。
+`origin` 指向 `kingus188/coffe`，`upstream` 指向 `deepseek-ai/deepseek-harness`。按需通过 Git 获取并合并上游改动，同步不依赖 GitHub Fork 关联。将审查过的上游改动导入 `dev`，验证合并后的改动，再推进到 `main`。保留原始提交，将 Coffe 扩展组织为范围集中的提交，使来源和后续合并可审查。此流程仅将上游分支和标签作为只读输入。
 
 ## 许可证
 
