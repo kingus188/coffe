@@ -56,6 +56,11 @@ allowBuilds:
   electron-winstaller: false
   # Store-index rewriting only needs msgpackr's portable JavaScript codec.
   msgpackr-extract: false
+  # Transitive devDependencies of testcontainers (session-persistence-postgres's
+  # e2e-only Docker driver): ssh2's native accel is unused here — testcontainers
+  # only needs it for a remote-Docker-over-SSH mode this repo does not use.
+  cpu-features: false
+  ssh2: false
 
 minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole

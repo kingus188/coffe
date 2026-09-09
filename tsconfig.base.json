@@ -354,6 +354,7 @@
       "@deepseek-ai/dsh-session-log-export": ["./packages/session-query/session-log-export/src"],
       "@deepseek-ai/dsh-session-persistence": ["./packages/session/session-persistence/src"],
       "@deepseek-ai/dsh-session-persistence-jsonl": ["./packages/session/session-persistence-jsonl/src"],
+      "@deepseek-ai/dsh-session-persistence-postgres": ["./packages/session/session-persistence-postgres/src"],
       "@deepseek-ai/dsh-session-projection": ["./packages/session/session-projection/src"],
       "@deepseek-ai/dsh-session-projection-cache": ["./packages/session/session-projection-cache/src"],
       "@deepseek-ai/dsh-session-query": ["./packages/session-query/session-query/src"],
